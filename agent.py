@@ -5,12 +5,14 @@ import time
 import streamlit as st
 from openai import OpenAI
 
+# OpenAI client
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
+# 🔥 Replace with your Render URL
 BASE_URL = "https://ecommerce-tools-api.onrender.com"
 
 
-# Wake backend (Render sleep fix)
+# 🔥 Wake backend (Render sleep fix)
 def wake_backend():
     try:
         requests.get(BASE_URL, timeout=10)
@@ -19,7 +21,7 @@ def wake_backend():
         pass
 
 
-# Safe HTTP call
+# 🔥 Safe HTTP call
 def safe_post(url, payload):
     try:
         res = requests.post(url, json=payload, timeout=20)
@@ -35,7 +37,7 @@ def safe_post(url, payload):
         return {"error": str(e)}
 
 
-# Extract data
+# 🔥 Extract structured data
 def extract_data(text):
     nums = list(map(int, re.findall(r'\d+', text)))
 
@@ -53,7 +55,7 @@ def extract_data(text):
     }
 
 
-# Clean LLM JSON
+# 🔥 Clean LLM JSON (fix ```json issue)
 def clean_json(reply):
     text = reply.strip()
 
@@ -85,9 +87,9 @@ apply_discount, apply_tax, apply_coupon, shipping_cost, convert_currency
 Rules:
 - Use only required tools
 - Order: discount → coupon → tax → shipping → currency
-- Skip steps if not needed
+- Skip unnecessary steps
 - One tool at a time
-- Return final answer at end
+- Always return final answer
 
 Respond ONLY in JSON:
 {"action": "...", "input": {}}
@@ -96,21 +98,22 @@ Respond ONLY in JSON:
         {"role": "user", "content": user_input}
     ]
 
-    for step in range(6):
-        res = client.chat.completions.create(
+    for step in range(6):  # loop safety
+        response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages
         )
 
-        reply = res.choices[0].message.content
+        reply = response.choices[0].message.content
         clean = clean_json(reply)
 
+        # Parse LLM response
         try:
             action = json.loads(clean)
         except:
             return {
                 "final_price": "Error",
-                "logs": logs + [f"⚠️ LLM format error: {reply}"]
+                "logs": logs + [f"⚠️ LLM format error → {reply}"]
             }
 
         # 🔧 DISCOUNT
@@ -192,22 +195,34 @@ Respond ONLY in JSON:
                 "logs": logs + [f"Step {step+1}: 🪙 USD → {usd}"]
             }
 
-        # ✅ FINAL
-        elif action["action"] == "final":
+        # ✅ FINAL (robust handling)
+        elif action["action"] in ["final", "final_price", "finish", "done"]:
+
+            if "final_price" in action.get("input", {}):
+                final_val = action["input"]["final_price"]
+            else:
+                final_val = current_price
+
             return {
-                "final_price": f"₹{int(current_price):,}",
+                "final_price": f"₹{int(final_val):,}",
                 "logs": logs + [f"Step {step+1}: ✅ Final"]
             }
 
+        # ⚠️ Unknown action → treat as final
         else:
-            logs.append(f"❌ Invalid action → {action}")
-            return {"final_price": "Error", "logs": logs}
+            return {
+                "final_price": f"₹{int(current_price):,}",
+                "logs": logs + [f"⚠️ Unknown action treated as final → {action}"]
+            }
 
-        # Feed back
+        # Feed tool result back to LLM
         messages.append({"role": "assistant", "content": reply})
         messages.append({
             "role": "user",
-            "content": f"Result: {result}, price: {current_price}"
+            "content": f"Tool result: {result}, current_price: {current_price}"
         })
 
-    return {"final_price": "Error", "logs": logs + ["❌ Max steps reached"]}
+    return {
+        "final_price": f"₹{int(current_price):,}",
+        "logs": logs + ["⚠️ Max steps reached → forced final"]
+    }
