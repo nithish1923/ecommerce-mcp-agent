@@ -55,7 +55,7 @@ def extract_data(text):
     }
 
 
-# Clean LLM JSON
+# Clean JSON
 def clean_json(reply):
     text = reply.strip()
 
@@ -87,13 +87,17 @@ apply_discount, apply_tax, apply_coupon, shipping_cost, convert_currency
 Rules:
 - Use only required tools
 - Order: discount → coupon → tax → shipping → currency
-- Skip unnecessary steps
 - Only convert currency if user explicitly asks
 - One tool at a time
 - Always return final answer
 
 Respond ONLY in JSON:
-{"action": "...", "input": {}}
+
+{
+  "action": "tool_name or final",
+  "input": {},
+  "reason": "why this action is chosen"
+}
 """
         },
         {"role": "user", "content": user_input}
@@ -110,6 +114,7 @@ Respond ONLY in JSON:
 
         try:
             action = json.loads(clean)
+            reason = action.get("reason", "No reason provided")
         except:
             return {
                 "final_price": "Error",
@@ -129,6 +134,7 @@ Respond ONLY in JSON:
 
             current_price = result["price_after_discount"]
             logs.append(f"Step {step+1}: 🔧 discount → {int(current_price)}")
+            logs.append(f"💡 Reason: {reason}")
 
         # COUPON
         elif action["action"] == "apply_coupon":
@@ -148,6 +154,7 @@ Respond ONLY in JSON:
 
             current_price = result["price_after_coupon"]
             logs.append(f"Step {step+1}: 💸 coupon → {int(current_price)}")
+            logs.append(f"💡 Reason: {reason}")
 
         # TAX
         elif action["action"] == "apply_tax":
@@ -162,6 +169,7 @@ Respond ONLY in JSON:
 
             current_price = result["final_price"]
             logs.append(f"Step {step+1}: 🧾 tax → {int(current_price)}")
+            logs.append(f"💡 Reason: {reason}")
 
         # SHIPPING
         elif action["action"] == "shipping_cost":
@@ -176,8 +184,9 @@ Respond ONLY in JSON:
 
             current_price = result["price_with_shipping"]
             logs.append(f"Step {step+1}: 🚚 shipping → {int(current_price)}")
+            logs.append(f"💡 Reason: {reason}")
 
-        # CURRENCY (FIXED)
+        # CURRENCY
         elif action["action"] == "convert_currency":
 
             if not data["currency"]:
@@ -195,22 +204,29 @@ Respond ONLY in JSON:
 
             usd = round(result["price_usd"], 2)
 
+            logs.append(f"Step {step+1}: 🪙 USD → {usd}")
+            logs.append(f"💡 Reason: {reason}")
+
             return {
                 "final_price": f"${usd}",
-                "logs": logs + [f"Step {step+1}: 🪙 USD → {usd}"]
+                "logs": logs
             }
 
         # FINAL
         elif action["action"] in ["final", "final_price", "finish", "done"]:
+            logs.append(f"Step {step+1}: ✅ Final")
+            logs.append(f"💡 Reason: {reason}")
+
             return {
                 "final_price": f"₹{int(current_price):,}",
-                "logs": logs + [f"Step {step+1}: ✅ Final"]
+                "logs": logs
             }
 
         else:
+            logs.append(f"⚠️ Unknown action → treated as final")
             return {
                 "final_price": f"₹{int(current_price):,}",
-                "logs": logs + [f"⚠️ Unknown action → treated as final"]
+                "logs": logs
             }
 
         # Feedback loop
