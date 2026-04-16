@@ -5,6 +5,7 @@ import time
 import streamlit as st
 from openai import OpenAI
 
+# OpenAI client
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # 🔥 Replace with your Render URL
@@ -20,7 +21,7 @@ def wake_backend():
         pass
 
 
-# 🔥 Safe POST (handles JSON errors)
+# 🔥 Safe POST (handles JSONDecodeError + API failures)
 def safe_post(url, payload):
     try:
         res = requests.post(url, json=payload, timeout=20)
@@ -53,6 +54,8 @@ def run_agent(user_input):
     data = extract_data(user_input)
     current_price = data["price"]
 
+    logs = []
+
     messages = [
         {
             "role": "system",
@@ -65,9 +68,9 @@ Available tools:
 
 Rules:
 - Decide which tool to call
-- Call one tool at a time
+- Call ONE tool at a time
 - After each tool, continue reasoning
-- Finally return answer
+- Finally return final answer
 
 Respond ONLY in JSON:
 
@@ -80,7 +83,7 @@ Respond ONLY in JSON:
         {"role": "user", "content": user_input}
     ]
 
-    for _ in range(5):  # prevent infinite loop
+    for step in range(5):  # prevent infinite loop
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages
@@ -88,12 +91,16 @@ Respond ONLY in JSON:
 
         reply = response.choices[0].message.content
 
+        # Try parsing LLM JSON
         try:
             action = json.loads(reply)
         except:
-            return f"⚠️ LLM format error:\n{reply}"
+            return {
+                "final_price": "Error",
+                "logs": logs + [f"⚠️ LLM format error: {reply}"]
+            }
 
-        # 🔧 APPLY DISCOUNT
+        # 🔧 TOOL: apply_discount
         if action["action"] == "apply_discount":
             result = safe_post(
                 f"{BASE_URL}/apply_discount",
@@ -104,11 +111,15 @@ Respond ONLY in JSON:
             )
 
             if "error" in result:
-                return f"❌ Discount tool failed: {result['error']}"
+                return {
+                    "final_price": "Error",
+                    "logs": logs + [f"❌ Discount failed: {result['error']}"]
+                }
 
             current_price = result["price_after_discount"]
+            logs.append(f"Step {step+1}: 🔧 apply_discount → {result}")
 
-        # 🔧 APPLY TAX
+        # 🔧 TOOL: apply_tax
         elif action["action"] == "apply_tax":
             result = safe_post(
                 f"{BASE_URL}/apply_tax",
@@ -119,16 +130,26 @@ Respond ONLY in JSON:
             )
 
             if "error" in result:
-                return f"❌ Tax tool failed: {result['error']}"
+                return {
+                    "final_price": "Error",
+                    "logs": logs + [f"❌ Tax failed: {result['error']}"]
+                }
 
             current_price = result["final_price"]
+            logs.append(f"Step {step+1}: 🔧 apply_tax → {result}")
 
-        # ✅ FINAL OUTPUT
+        # ✅ FINAL
         elif action["action"] == "final":
-            return f"Final Price: ₹{current_price}"
+            return {
+                "final_price": f"₹{int(current_price):,}",
+                "logs": logs + [f"Step {step+1}: ✅ Final Answer"]
+            }
 
         else:
-            return "❌ Invalid action from LLM"
+            return {
+                "final_price": "Error",
+                "logs": logs + [f"❌ Invalid action: {action}"]
+            }
 
         # Feed back to LLM
         messages.append({
@@ -141,4 +162,7 @@ Respond ONLY in JSON:
             "content": f"Tool result: {result}, current_price: {current_price}"
         })
 
-    return "❌ Agent stopped (too many steps)"
+    return {
+        "final_price": "Error",
+        "logs": logs + ["❌ Max steps reached"]
+    }
