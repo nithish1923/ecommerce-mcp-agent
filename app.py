@@ -1,7 +1,7 @@
 import streamlit as st
 from agent import run_agent
 
-st.title("🛒 E-commerce MCP Agent")
+st.title("🛒 Agentic E-commerce MCP")
 
 user_input = st.text_input(
     "Enter details",
@@ -10,4 +10,4 @@ user_input = st.text_input(
 
 if st.button("Calculate"):
     result = run_agent(user_input)
-    st.write(result)
+    st.success(result)
