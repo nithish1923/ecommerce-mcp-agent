@@ -12,7 +12,7 @@ client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 BASE_URL = "https://ecommerce-tools-api.onrender.com"
 
 
-# 🔥 Wake backend (Render sleep fix)
+# 🔥 Wake backend (fix Render sleep)
 def wake_backend():
     try:
         requests.get(BASE_URL, timeout=10)
@@ -21,7 +21,7 @@ def wake_backend():
         pass
 
 
-# 🔥 Safe POST (handles JSONDecodeError + API failures)
+# 🔥 Safe POST (handles errors + bad responses)
 def safe_post(url, payload):
     try:
         res = requests.post(url, json=payload, timeout=20)
@@ -38,7 +38,7 @@ def safe_post(url, payload):
         return {"error": str(e)}
 
 
-# Extract numbers from input
+# 🔥 Extract numbers from input
 def extract_data(text):
     nums = list(map(int, re.findall(r'\d+', text)))
     return {
@@ -46,6 +46,19 @@ def extract_data(text):
         "discount": nums[1] if len(nums) > 1 else 0,
         "tax": nums[2] if len(nums) > 2 else 0
     }
+
+
+# 🔥 Clean LLM output (fix ```json issue)
+def clean_llm_json(reply):
+    text = reply.strip()
+
+    if text.startswith("```"):
+        parts = text.split("```")
+        if len(parts) > 1:
+            text = parts[1]
+        text = text.replace("json", "").strip()
+
+    return text
 
 
 def run_agent(user_input):
@@ -68,11 +81,11 @@ Available tools:
 
 Rules:
 - Decide which tool to call
-- Call ONE tool at a time
+- Call ONLY one tool at a time
 - After each tool, continue reasoning
-- Finally return final answer
+- Finally return answer
 
-Respond ONLY in JSON:
+Respond ONLY in RAW JSON (no markdown, no ```):
 
 {
   "action": "apply_discount | apply_tax | final",
@@ -91,13 +104,16 @@ Respond ONLY in JSON:
 
         reply = response.choices[0].message.content
 
-        # Try parsing LLM JSON
+        # 🔥 Clean LLM output
+        clean_reply = clean_llm_json(reply)
+
+        # 🔥 Parse JSON safely
         try:
-            action = json.loads(reply)
+            action = json.loads(clean_reply)
         except:
             return {
                 "final_price": "Error",
-                "logs": logs + [f"⚠️ LLM format error: {reply}"]
+                "logs": logs + [f"⚠️ LLM format error:\n{reply}"]
             }
 
         # 🔧 TOOL: apply_discount
@@ -138,7 +154,7 @@ Respond ONLY in JSON:
             current_price = result["final_price"]
             logs.append(f"Step {step+1}: 🔧 apply_tax → {result}")
 
-        # ✅ FINAL
+        # ✅ FINAL ANSWER
         elif action["action"] == "final":
             return {
                 "final_price": f"₹{int(current_price):,}",
@@ -151,7 +167,7 @@ Respond ONLY in JSON:
                 "logs": logs + [f"❌ Invalid action: {action}"]
             }
 
-        # Feed back to LLM
+        # 🔁 Feed result back to LLM
         messages.append({
             "role": "assistant",
             "content": reply
