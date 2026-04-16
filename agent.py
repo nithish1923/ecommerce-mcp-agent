@@ -5,14 +5,11 @@ import time
 import streamlit as st
 from openai import OpenAI
 
-# OpenAI client
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# 🔥 Replace with your Render URL
 BASE_URL = "https://ecommerce-tools-api.onrender.com"
 
 
-# 🔥 Wake backend (fix Render sleep)
 def wake_backend():
     try:
         requests.get(BASE_URL, timeout=10)
@@ -21,7 +18,6 @@ def wake_backend():
         pass
 
 
-# 🔥 Safe POST (handles errors + bad responses)
 def safe_post(url, payload):
     try:
         res = requests.post(url, json=payload, timeout=20)
@@ -29,27 +25,29 @@ def safe_post(url, payload):
         if res.status_code != 200:
             return {"error": f"HTTP {res.status_code}"}
 
-        try:
-            return res.json()
-        except:
-            return {"error": "Invalid JSON response"}
-
+        return res.json()
     except Exception as e:
         return {"error": str(e)}
 
 
-# 🔥 Extract numbers from input
 def extract_data(text):
     nums = list(map(int, re.findall(r'\d+', text)))
+
+    coupon = None
+    if "save10" in text.lower():
+        coupon = "SAVE10"
+    elif "save20" in text.lower():
+        coupon = "SAVE20"
+
     return {
         "price": nums[0] if len(nums) > 0 else 0,
         "discount": nums[1] if len(nums) > 1 else 0,
-        "tax": nums[2] if len(nums) > 2 else 0
+        "tax": nums[2] if len(nums) > 2 else 0,
+        "coupon": coupon
     }
 
 
-# 🔥 Clean LLM output (fix ```json issue)
-def clean_llm_json(reply):
+def clean_json(reply):
     text = reply.strip()
 
     if text.startswith("```"):
@@ -66,119 +64,112 @@ def run_agent(user_input):
 
     data = extract_data(user_input)
     current_price = data["price"]
-
     logs = []
 
     messages = [
         {
             "role": "system",
             "content": """
-You are an e-commerce pricing agent.
+You are an intelligent e-commerce pricing agent.
 
 Available tools:
-1. apply_discount(price, discount)
-2. apply_tax(price, tax)
+apply_discount, apply_tax, apply_coupon, shipping_cost, convert_currency
 
 Rules:
-- Decide which tool to call
-- Call ONLY one tool at a time
-- After each tool, continue reasoning
-- Finally return answer
+- Use only needed tools
+- Order: discount → coupon → tax → shipping → currency
+- One tool at a time
+- Return final answer at end
 
-Respond ONLY in RAW JSON (no markdown, no ```):
-
-{
-  "action": "apply_discount | apply_tax | final",
-  "input": {}
-}
+Respond ONLY in JSON:
+{"action": "...", "input": {}}
 """
         },
         {"role": "user", "content": user_input}
     ]
 
-    for step in range(5):  # prevent infinite loop
-        response = client.chat.completions.create(
+    for step in range(6):
+        res = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages
         )
 
-        reply = response.choices[0].message.content
+        reply = res.choices[0].message.content
+        clean = clean_json(reply)
 
-        # 🔥 Clean LLM output
-        clean_reply = clean_llm_json(reply)
-
-        # 🔥 Parse JSON safely
         try:
-            action = json.loads(clean_reply)
+            action = json.loads(clean)
         except:
-            return {
-                "final_price": "Error",
-                "logs": logs + [f"⚠️ LLM format error:\n{reply}"]
-            }
+            return {"final_price": "Error", "logs": logs + [reply]}
 
-        # 🔧 TOOL: apply_discount
+        # DISCOUNT
         if action["action"] == "apply_discount":
             result = safe_post(
                 f"{BASE_URL}/apply_discount",
-                {
-                    "price": current_price,
-                    "discount": data["discount"]
-                }
+                {"price": current_price, "discount": data["discount"]}
             )
 
-            if "error" in result:
-                return {
-                    "final_price": "Error",
-                    "logs": logs + [f"❌ Discount failed: {result['error']}"]
-                }
-
             current_price = result["price_after_discount"]
-            logs.append(f"Step {step+1}: 🔧 apply_discount → {result}")
+            logs.append(f"Step {step+1}: 🔧 discount → {int(current_price)}")
 
-        # 🔧 TOOL: apply_tax
+        # COUPON
+        elif action["action"] == "apply_coupon":
+            result = safe_post(
+                f"{BASE_URL}/apply_coupon",
+                {"price": current_price, "coupon": data["coupon"]}
+            )
+
+            current_price = result["price_after_coupon"]
+            logs.append(f"Step {step+1}: 💸 coupon → {int(current_price)}")
+
+        # TAX
         elif action["action"] == "apply_tax":
             result = safe_post(
                 f"{BASE_URL}/apply_tax",
-                {
-                    "price": current_price,
-                    "tax": data["tax"]
-                }
+                {"price": current_price, "tax": data["tax"]}
             )
 
-            if "error" in result:
-                return {
-                    "final_price": "Error",
-                    "logs": logs + [f"❌ Tax failed: {result['error']}"]
-                }
-
             current_price = result["final_price"]
-            logs.append(f"Step {step+1}: 🔧 apply_tax → {result}")
+            logs.append(f"Step {step+1}: 🧾 tax → {int(current_price)}")
 
-        # ✅ FINAL ANSWER
+        # SHIPPING
+        elif action["action"] == "shipping_cost":
+            result = safe_post(
+                f"{BASE_URL}/shipping_cost",
+                {"price": current_price}
+            )
+
+            current_price = result["price_with_shipping"]
+            logs.append(f"Step {step+1}: 🚚 shipping → {int(current_price)}")
+
+        # CURRENCY
+        elif action["action"] == "convert_currency":
+            result = safe_post(
+                f"{BASE_URL}/convert_currency",
+                {"price": current_price}
+            )
+
+            usd = round(result["price_usd"], 2)
+
+            return {
+                "final_price": f"${usd}",
+                "logs": logs + [f"Step {step+1}: 🪙 USD → {usd}"]
+            }
+
+        # FINAL
         elif action["action"] == "final":
             return {
                 "final_price": f"₹{int(current_price):,}",
-                "logs": logs + [f"Step {step+1}: ✅ Final Answer"]
+                "logs": logs + [f"Step {step+1}: ✅ Final"]
             }
 
         else:
-            return {
-                "final_price": "Error",
-                "logs": logs + [f"❌ Invalid action: {action}"]
-            }
+            return {"final_price": "Error", "logs": logs}
 
-        # 🔁 Feed result back to LLM
-        messages.append({
-            "role": "assistant",
-            "content": reply
-        })
-
+        messages.append({"role": "assistant", "content": reply})
         messages.append({
             "role": "user",
-            "content": f"Tool result: {result}, current_price: {current_price}"
+            "content": f"Result: {result}, price: {current_price}"
         })
 
-    return {
-        "final_price": "Error",
-        "logs": logs + ["❌ Max steps reached"]
-    }
+    return {"final_price": "Error", "logs": logs}
