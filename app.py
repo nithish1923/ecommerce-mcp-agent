@@ -11,14 +11,23 @@ st.caption("LLM-powered pricing agent with dynamic tool orchestration")
 
 st.divider()
 
-# Input
-user_input = st.text_area(
+# ---------------------------
+# SESSION STATE (IMPORTANT FIX)
+# ---------------------------
+if "user_input" not in st.session_state:
+    st.session_state.user_input = ""
+
+# Input box
+st.session_state.user_input = st.text_area(
     "💬 Enter your scenario",
+    value=st.session_state.user_input,
     height=120,
     placeholder="Describe your purchase in natural language..."
 )
 
-# Example buttons
+# ---------------------------
+# EXAMPLE BUTTONS (FIXED)
+# ---------------------------
 st.subheader("🧪 Try Examples")
 
 examples = [
@@ -31,29 +40,33 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
     if st.button("Example 1"):
-        user_input = examples[0]
+        st.session_state.user_input = examples[0]
 
 with col2:
     if st.button("Example 2"):
-        user_input = examples[1]
+        st.session_state.user_input = examples[1]
 
 with col3:
     if st.button("Example 3"):
-        user_input = examples[2]
+        st.session_state.user_input = examples[2]
 
 st.divider()
 
-# Run agent
-if st.button("🚀 Calculate") and user_input:
+# ---------------------------
+# RUN AGENT
+# ---------------------------
+if st.button("🚀 Calculate") and st.session_state.user_input:
 
-    result = run_agent(user_input)
+    result = run_agent(st.session_state.user_input)
 
-    # Final price metric
+    # Final price
     st.metric("💰 Final Price", result["final_price"])
 
     st.divider()
 
-    # Execution logs
+    # ---------------------------
+    # AGENT EXECUTION LOGS
+    # ---------------------------
     st.subheader("🧠 Agent Execution")
 
     for log in result["logs"]:
@@ -72,7 +85,9 @@ if st.button("🚀 Calculate") and user_input:
 
     st.divider()
 
-    # Execution flow
+    # ---------------------------
+    # EXECUTION FLOW
+    # ---------------------------
     flow = " → ".join([
         log.split("|")[0].replace("Step", "").strip()
         for log in result["logs"]
@@ -84,7 +99,9 @@ if st.button("🚀 Calculate") and user_input:
 
     st.divider()
 
-    # Breakdown table
+    # ---------------------------
+    # BREAKDOWN TABLE
+    # ---------------------------
     steps_data = []
 
     for log in result["logs"]:
@@ -107,5 +124,7 @@ if st.button("🚀 Calculate") and user_input:
 
 st.divider()
 
-# Footer
-st.caption("Built with Streamlit + Render + OpenAI | MCP-style Agent")
+# ---------------------------
+# CLEAN FOOTER (FIXED)
+# ---------------------------
+st.markdown("Built with **Streamlit + Render + OpenAI**")
