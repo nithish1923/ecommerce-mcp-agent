@@ -10,4 +10,12 @@ user_input = st.text_input(
 
 if st.button("Calculate"):
     result = run_agent(user_input)
-    st.success(result)
+
+    if isinstance(result, dict):
+        st.success(f"Final Price: {result['final_price']}")
+
+        st.subheader("🧠 Agent Steps")
+        for log in result["logs"]:
+            st.write(log)
+    else:
+        st.write(result)
