@@ -6,7 +6,7 @@ from openai import OpenAI
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # 🔥 Replace after Render deploy
-BASE_URL = "https://your-api.onrender.com"
+BASE_URL = "https://ecommerce-tools-api.onrender.com"
 
 
 def extract_data(text):
