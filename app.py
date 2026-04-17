@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from agent import run_agent
@@ -12,7 +13,7 @@ st.caption("LLM-powered pricing agent with dynamic tool orchestration")
 st.divider()
 
 # ---------------------------
-# SESSION STATE (IMPORTANT FIX)
+# SESSION STATE
 # ---------------------------
 if "user_input" not in st.session_state:
     st.session_state.user_input = ""
@@ -24,31 +25,6 @@ st.session_state.user_input = st.text_area(
     height=120,
     placeholder="Describe your purchase in natural language..."
 )
-
-# ---------------------------
-# EXAMPLE BUTTONS (FIXED)
-# ---------------------------
-st.subheader("🧪 Try Examples")
-
-examples = [
-    "Laptop 50000, 20% discount, SAVE10 coupon, 18% GST, add shipping",
-    "Phone 30000, 10% discount, 18% GST",
-    "Laptop 50000 convert to USD"
-]
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    if st.button("Example 1"):
-        st.session_state.user_input = examples[0]
-
-with col2:
-    if st.button("Example 2"):
-        st.session_state.user_input = examples[1]
-
-with col3:
-    if st.button("Example 3"):
-        st.session_state.user_input = examples[2]
 
 st.divider()
 
@@ -124,7 +100,5 @@ if st.button("🚀 Calculate") and st.session_state.user_input:
 
 st.divider()
 
-# ---------------------------
-# CLEAN FOOTER (FIXED)
-# ---------------------------
+# Footer
 st.markdown("Built with **Streamlit + Render + OpenAI**")
